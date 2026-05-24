@@ -1,0 +1,11 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "dataset": "CybersecurityQAA_Human",
+  "total": 400,
+  "yes": 242,
+  "no": 157,
+  "uncertain": 1,
+  "agreement_rate": 0.605,
+  "uncertainty_rate": 0.0025,
+  "selectivity": 0.6065
+}

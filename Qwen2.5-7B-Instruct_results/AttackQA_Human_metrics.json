@@ -1,0 +1,11 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "dataset": "AttackQA_Human",
+  "total": 400,
+  "yes": 142,
+  "no": 247,
+  "uncertain": 11,
+  "agreement_rate": 0.355,
+  "uncertainty_rate": 0.0275,
+  "selectivity": 0.365
+}
