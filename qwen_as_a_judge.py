@@ -3,10 +3,10 @@ import pandas as pd
 import requests
 import json
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 
 VLLM_URL = "http://localhost:8000/v1/chat/completions"
-MODEL = "Qwen/Qwen2.5-3B-Instruct"
+SMALL_MODEL_NAME = "Qwen2.5-3B-Instruct"
+MODEL = "Qwen/" + SMALL_MODEL_NAME
 
 
 output_lines = []
@@ -119,6 +119,8 @@ cyberqa_human = cyberqa[
 # 5. RUN EVALUATION
 # ----------------------------
 def evaluate(df, name):
+    df = df.reset_index(drop=True)
+    df = df.dropna(subset=["question", "answer"])
     y_pred = []
     raw_outputs = []
 
@@ -139,7 +141,7 @@ def evaluate(df, name):
         "raw_output": raw_outputs
     })
 
-    results_df.to_csv(f"{name}_evaluation.csv", index=False)
+    results_df.to_csv(f"{SMALL_MODEL_NAME}_results/{name}_evaluation.csv", index=False)
 
     # --------
     # METRICS
@@ -180,7 +182,7 @@ def evaluate(df, name):
         "selectivity": selectivity
     }
 
-    with open(f"{name}_metrics.json", "w") as f:
+    with open(f"{SMALL_MODEL_NAME}_results/{name}_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
 
