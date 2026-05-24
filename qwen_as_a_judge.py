@@ -95,6 +95,7 @@ attackqa = pd.read_parquet(
 )
 
 print(attackqa.head())
+print(attackqa.shape)
 
 cyberqa_json = pd.read_json(
     "https://huggingface.co/datasets/Rowden/CybersecurityQAA/resolve/main/cybersecurityQAAdataset.json"
@@ -102,6 +103,7 @@ cyberqa_json = pd.read_json(
 cyberqa = pd.json_normalize(cyberqa_json["vars"])
 
 print(cyberqa.head())
+print(cyberqa.shape)
 
 
 # ----------------------------
