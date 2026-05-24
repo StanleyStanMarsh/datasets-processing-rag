@@ -1,0 +1,10 @@
+{
+  "name": "CybersecurityQAA_Human",
+  "total": 400,
+  "yes": 348,
+  "no": 9,
+  "uncertain": 43,
+  "agreement_rate": 0.87,
+  "uncertainty_rate": 0.1075,
+  "selectivity": 0.9747899159663865
+}

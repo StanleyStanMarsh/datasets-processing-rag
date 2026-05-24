@@ -1,0 +1,10 @@
+{
+  "name": "AttackQA_Human",
+  "total": 400,
+  "yes": 59,
+  "no": 3,
+  "uncertain": 338,
+  "agreement_rate": 0.1475,
+  "uncertainty_rate": 0.845,
+  "selectivity": 0.9516129032258065
+}
