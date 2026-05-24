@@ -2,10 +2,10 @@
   "model": "Qwen/Qwen2.5-3B-Instruct",
   "name": "CybersecurityQAA_Human",
   "total": 400,
-  "yes": 349,
-  "no": 5,
+  "yes": 345,
+  "no": 9,
   "uncertain": 46,
-  "agreement_rate": 0.8725,
+  "agreement_rate": 0.8625,
   "uncertainty_rate": 0.115,
-  "selectivity": 0.9858757062146892
+  "selectivity": 0.9745762711864406
 }

@@ -2,10 +2,10 @@
   "model": "Qwen/Qwen2.5-3B-Instruct",
   "name": "AttackQA_Human",
   "total": 400,
-  "yes": 56,
-  "no": 1,
-  "uncertain": 343,
-  "agreement_rate": 0.14,
-  "uncertainty_rate": 0.8575,
-  "selectivity": 0.9824561403508771
+  "yes": 261,
+  "no": 8,
+  "uncertain": 131,
+  "agreement_rate": 0.6525,
+  "uncertainty_rate": 0.3275,
+  "selectivity": 0.9702602230483272
 }
