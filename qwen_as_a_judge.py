@@ -111,40 +111,33 @@ cyberqa_human = cyberqa[
 def evaluate(df, name):
     y_true = []
     y_pred = []
+    raw_outputs = []
 
     for _, row in tqdm(df.iterrows(), total=len(df)):
         q = str(row["question"])
         a = str(row["answer"])
 
-        # ground truth assumption: all human/expert reviewed are correct
-        true_label = 2  # "yes"
-
+        true_label = 2
         raw = query_qwen(q, a)
         pred = parse_verdict(raw)
 
         y_true.append(true_label)
         y_pred.append(pred)
+        raw_outputs.append(raw)
+
+    results_df = pd.DataFrame({
+        "question": df["question"].values,
+        "answer": df["answer"].values,
+        "y_true": y_true,
+        "y_pred": y_pred,
+        "raw_output": raw_outputs
+    })
+
+    results_df.to_csv(f"{name}_evaluation.csv", index=False)
 
     print(f"\n===== {name} RESULTS =====")
-
-    labels = [0, 1, 2]
-    print("Confusion Matrix:\n", confusion_matrix(y_true, y_pred, labels=labels))
-
-    print("\nClassification Report:")
-    print(classification_report(
-        y_true,
-        y_pred,
-        labels=labels,
-        target_names=["no", "uncertain", "yes"],
-        digits=4
-    ))
-
-    # additional useful stats
-    total = len(y_pred)
-    print("\nDistribution:")
-    print("yes:", y_pred.count(2) / total)
-    print("uncertain:", y_pred.count(1) / total)
-    print("no:", y_pred.count(0) / total)
+    print(confusion_matrix(y_true, y_pred))
+    print(classification_report(y_true, y_pred))
 
 
 # ----------------------------
