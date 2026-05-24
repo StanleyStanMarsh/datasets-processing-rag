@@ -112,7 +112,6 @@ cyberqa_human = cyberqa[
 # 5. RUN EVALUATION
 # ----------------------------
 def evaluate(df, name):
-    y_true = []
     y_pred = []
     raw_outputs = []
 
@@ -120,27 +119,47 @@ def evaluate(df, name):
         q = str(row["question"])
         a = str(row["answer"])
 
-        true_label = 2
         raw = query_qwen(q, a)
         pred = parse_verdict(raw)
 
-        y_true.append(true_label)
         y_pred.append(pred)
         raw_outputs.append(raw)
 
     results_df = pd.DataFrame({
         "question": df["question"].values,
         "answer": df["answer"].values,
-        "y_true": y_true,
         "y_pred": y_pred,
         "raw_output": raw_outputs
     })
 
     results_df.to_csv(f"{name}_evaluation.csv", index=False)
 
+    # --------
+    # METRICS
+    # --------
+
+    total = len(y_pred)
+
+    yes_count = sum(p == 2 for p in y_pred)
+    no_count = sum(p == 0 for p in y_pred)
+    uncertain_count = sum(p == 1 for p in y_pred)
+
+    agreement_rate = yes_count / total
+    uncertainty_rate = uncertain_count / total
+
+    selectivity = yes_count / (yes_count + no_count) if (yes_count + no_count) > 0 else 0.0
+
     print(f"\n===== {name} RESULTS =====")
-    print(confusion_matrix(y_true, y_pred))
-    print(classification_report(y_true, y_pred))
+
+    print("\n--- Distribution ---")
+    print(f"YES        : {yes_count} ({yes_count/total:.3f})")
+    print(f"NO         : {no_count} ({no_count/total:.3f})")
+    print(f"UNCERTAIN  : {uncertain_count} ({uncertain_count/total:.3f})")
+
+    print("\n--- Key Metrics ---")
+    print(f"Agreement rate (YES): {agreement_rate:.3f}")
+    print(f"Uncertainty rate    : {uncertainty_rate:.3f}")
+    print(f"Selectivity (YES/(YES+NO)): {selectivity:.3f}")
 
 
 # ----------------------------
