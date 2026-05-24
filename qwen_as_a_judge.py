@@ -8,7 +8,7 @@ import time
 
 # Конфигурация
 VLLM_URL = "http://localhost:8000/v1/chat/completions"
-SMALL_MODEL_NAME = "Qwen2-7B-Instruct"
+SMALL_MODEL_NAME = "Qwen2.5-7B-Instruct"
 MODEL = "Qwen/" + SMALL_MODEL_NAME
 OUTPUT_DIR = f"{SMALL_MODEL_NAME}_results"
 
