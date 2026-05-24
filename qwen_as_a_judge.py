@@ -89,11 +89,13 @@ def parse_verdict(text):
 # ----------------------------
 # 3. LOAD DATASETS
 # ----------------------------
+print(f"\n===== BEFORE FILTERING =====")
 attackqa = pd.read_parquet(
     "https://huggingface.co/datasets/sambanovasystems/attackqa/resolve/main/attackqa.parquet",
     engine="fastparquet"
 )
 
+print(f"\n===== AttackQA =====")
 print(attackqa.head())
 print(attackqa.shape)
 
@@ -102,6 +104,7 @@ cyberqa_json = pd.read_json(
 )
 cyberqa = pd.json_normalize(cyberqa_json["vars"])
 
+print(f"\n===== CybersecurityQAA =====")
 print(cyberqa.head())
 print(cyberqa.shape)
 
@@ -123,6 +126,9 @@ cyberqa_human = cyberqa[
 def evaluate(df, name):
     df = df.reset_index(drop=True)
     df = df.dropna(subset=["question", "answer"])
+    print(f"\n===== {name} PROCESSING =====")
+    print(df.head())
+    print(df.shape)
     y_pred = []
     raw_outputs = []
 
