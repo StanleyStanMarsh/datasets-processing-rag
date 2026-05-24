@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import requests
 import json
@@ -7,6 +8,12 @@ from sklearn.metrics import accuracy_score, confusion_matrix, classification_rep
 VLLM_URL = "http://localhost:8000/v1/chat/completions"
 MODEL = "Qwen/Qwen2.5-3B-Instruct"
 
+
+output_lines = []
+
+def log(line=""):
+    print(line)
+    output_lines.append(line)
 
 # ----------------------------
 # 1. QUERY FUNCTION
@@ -161,9 +168,23 @@ def evaluate(df, name):
     print(f"Uncertainty rate    : {uncertainty_rate:.3f}")
     print(f"Selectivity (YES/(YES+NO)): {selectivity:.3f}")
 
+    metrics = {
+        "name": name,
+        "total": total,
+        "yes": yes_count,
+        "no": no_count,
+        "uncertain": uncertain_count,
+        "agreement_rate": agreement_rate,
+        "uncertainty_rate": uncertainty_rate,
+        "selectivity": selectivity
+    }
+
+    with open(f"{name}_metrics.json", "w") as f:
+        json.dump(metrics, f, indent=2)
+
 
 # ----------------------------
 # 6. RUN BOTH
 # ----------------------------
-evaluate(attackqa_human.sample(min(200, len(attackqa_human))), "AttackQA Human")
-evaluate(cyberqa_human.sample(min(200, len(cyberqa_human))), "CybersecurityQAA Human")
+evaluate(attackqa_human.sample(min(400, len(attackqa_human))), "AttackQA_Human")
+evaluate(cyberqa_human.sample(min(400, len(cyberqa_human))), "CybersecurityQAA_Human")
