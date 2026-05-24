@@ -119,6 +119,15 @@ cyberqa_human = cyberqa[
     cyberqa['reviewed_by_expert'].astype(str).map({'TRUE': True, 'FALSE': False, '': False}).fillna(False) == True
 ].copy()
 
+print(f"\n===== AFTER FILTERING =====")
+
+print(f"\n===== AttackQA =====")
+print(attackqa_human.head())
+print(attackqa_human.shape)
+
+print(f"\n===== CybersecurityQAA =====")
+print(cyberqa_human.head())
+print(cyberqa_human.shape)
 
 # ----------------------------
 # 5. RUN EVALUATION
@@ -197,5 +206,5 @@ def evaluate(df, name):
 # ----------------------------
 # 6. RUN BOTH
 # ----------------------------
-evaluate(attackqa_human.sample(min(400, len(attackqa_human))), "AttackQA_Human")
-evaluate(cyberqa_human.sample(min(400, len(cyberqa_human))), "CybersecurityQAA_Human")
+evaluate(attackqa_human.sample(min(400, len(attackqa_human)), random_state=42), "AttackQA_Human")
+evaluate(cyberqa_human.sample(min(400, len(cyberqa_human)), random_state=42), "CybersecurityQAA_Human")
