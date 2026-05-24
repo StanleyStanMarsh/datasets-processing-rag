@@ -169,6 +169,7 @@ def evaluate(df, name):
     print(f"Selectivity (YES/(YES+NO)): {selectivity:.3f}")
 
     metrics = {
+        "model": MODEL,
         "name": name,
         "total": total,
         "yes": yes_count,
