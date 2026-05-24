@@ -1,11 +1,11 @@
 {
   "model": "Qwen/Qwen2.5-3B-Instruct",
-  "name": "CybersecurityQAA_Human",
+  "dataset": "CybersecurityQAA_Human",
   "total": 400,
-  "yes": 345,
-  "no": 9,
-  "uncertain": 46,
-  "agreement_rate": 0.8625,
-  "uncertainty_rate": 0.115,
-  "selectivity": 0.9745762711864406
+  "yes": 9,
+  "no": 379,
+  "uncertain": 12,
+  "agreement_rate": 0.0225,
+  "uncertainty_rate": 0.03,
+  "selectivity": 0.0232
 }
