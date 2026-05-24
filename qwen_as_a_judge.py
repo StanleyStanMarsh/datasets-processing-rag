@@ -114,10 +114,14 @@ print(cyberqa.shape)
 # ----------------------------
 
 attackqa_human = attackqa[attackqa["human_answer"] == True].copy()
+attackqa_human = attackqa_human.reset_index(drop=True)
+attackqa_human = attackqa_human.dropna(subset=["question", "answer"])
 
 cyberqa_human = cyberqa[
     cyberqa['reviewed_by_expert'].astype(str).map({'TRUE': True, 'FALSE': False, '': False}).fillna(False) == True
 ].copy()
+cyberqa_human = cyberqa_human.reset_index(drop=True)
+cyberqa_human = cyberqa_human.dropna(subset=["question", "answer"])
 
 print("Проверка на NaN в attackqa_human:")
 print(f"Всего строк: {len(attackqa_human)}")
@@ -143,8 +147,6 @@ print(cyberqa_human.shape)
 # 5. RUN EVALUATION
 # ----------------------------
 def evaluate(df, name):
-    df = df.reset_index(drop=True)
-    df = df.dropna(subset=["question", "answer"])
     print(f"\n===== {name} PROCESSING =====")
     print(df.head())
     print(df.shape)
