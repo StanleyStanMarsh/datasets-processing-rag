@@ -119,6 +119,16 @@ cyberqa_human = cyberqa[
     cyberqa['reviewed_by_expert'].astype(str).map({'TRUE': True, 'FALSE': False, '': False}).fillna(False) == True
 ].copy()
 
+print("Проверка на NaN в attackqa_human:")
+print(f"Всего строк: {len(attackqa_human)}")
+print(f"Строк с NaN в question: {attackqa_human['question'].isna().sum()}")
+print(f"Строк с NaN в answer: {attackqa_human['answer'].isna().sum()}")
+print(f"Строк с NaN в question ИЛИ answer: {attackqa_human[['question', 'answer']].isna().any(axis=1).sum()}")
+
+# Проверим, сколько останется после dropna
+clean_df = attackqa_human.dropna(subset=["question", "answer"])
+print(f"Строк после dropna: {len(clean_df)}")
+
 print(f"\n===== AFTER FILTERING =====")
 
 print(f"\n===== AttackQA =====")
