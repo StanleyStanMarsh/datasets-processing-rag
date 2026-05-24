@@ -94,18 +94,20 @@ cyberqa_json = pd.read_json(
 )
 cyberqa = pd.json_normalize(cyberqa_json["vars"])
 
-print(cyberqa_json.head())
+print(cyberqa.head())
 
 
 # ----------------------------
 # 4. FILTER HUMAN-GENERATED ONLY
 # ----------------------------
 
+cyberqa["reviewed_by_human"] = cyberqa["reviewed_by_human"].astype(str).str.upper() == "TRUE"
+cyberqa["reviewed_by_expert"] = cyberqa["reviewed_by_expert"].astype(str).str.upper() == "TRUE"
+
 attackqa_human = attackqa[attackqa["human_answer"] == True].copy()
 
 cyberqa_human = cyberqa[
-    (cyberqa["reviewed_by_human"] == True) |
-    (cyberqa["reviewed_by_expert"] == True)
+    cyberqa['reviewed_by_expert'].astype(str).map({'TRUE': True, 'FALSE': False, '': False}).fillna(False) == True
 ].copy()
 
 
