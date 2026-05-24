@@ -92,7 +92,7 @@ def parse_verdict(text):
 print(f"\n===== BEFORE FILTERING =====")
 attackqa = pd.read_parquet(
     "https://huggingface.co/datasets/sambanovasystems/attackqa/resolve/main/attackqa.parquet",
-    engine="fastparquet"
+    engine="pyarrow"
 )
 
 print(f"\n===== AttackQA =====")
