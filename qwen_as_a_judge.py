@@ -101,9 +101,6 @@ print(cyberqa.head())
 # 4. FILTER HUMAN-GENERATED ONLY
 # ----------------------------
 
-cyberqa["reviewed_by_human"] = cyberqa["reviewed_by_human"].astype(str).str.upper() == "TRUE"
-cyberqa["reviewed_by_expert"] = cyberqa["reviewed_by_expert"].astype(str).str.upper() == "TRUE"
-
 attackqa_human = attackqa[attackqa["human_answer"] == True].copy()
 
 cyberqa_human = cyberqa[
