@@ -8,8 +8,8 @@ import time
 
 # Конфигурация
 VLLM_URL = "http://localhost:8000/v1/chat/completions"
-SMALL_MODEL_NAME = "Mistral-7B-Instruct-v0.2"
-MODEL = "mistralai/" + SMALL_MODEL_NAME
+SMALL_MODEL_NAME = "Meta-Llama-3-8B-Instruct"
+MODEL = "meta-llama/" + SMALL_MODEL_NAME
 OUTPUT_DIR = f"{SMALL_MODEL_NAME}_results"
 
 # Создаем директорию для результатов, если нет
