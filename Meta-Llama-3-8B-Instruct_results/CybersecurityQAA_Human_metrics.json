@@ -1,0 +1,11 @@
+{
+  "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+  "dataset": "CybersecurityQAA_Human",
+  "total": 400,
+  "yes": 31,
+  "no": 368,
+  "uncertain": 1,
+  "agreement_rate": 0.0775,
+  "uncertainty_rate": 0.0025,
+  "selectivity": 0.0777
+}
