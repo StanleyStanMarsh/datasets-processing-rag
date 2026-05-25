@@ -1,0 +1,11 @@
+{
+  "model": "mistralai/Mistral-7B-Instruct-v0.2",
+  "dataset": "CybersecurityQAA_Human",
+  "total": 400,
+  "yes": 304,
+  "no": 4,
+  "uncertain": 92,
+  "agreement_rate": 0.76,
+  "uncertainty_rate": 0.23,
+  "selectivity": 0.987
+}
