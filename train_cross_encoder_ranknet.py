@@ -1,4 +1,7 @@
 import os
+os.environ['HF_HUB_ENABLE_XET'] = '0'
+os.environ['HF_HOME'] = '/raid/iastafyev/hf_cache'
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
 
 class RankNetLoss(nn.Module):
     def __init__(self):
@@ -25,7 +29,7 @@ class PairDataset(Dataset):
         row = self.df.iloc[idx]
         return {
             "question": str(row["question"]),
-            "answer": str(row["answer"]),
+            "positive": str(row["positive"]),
             "hard_negative": str(row["hard_negative"])
         }
 
@@ -43,7 +47,7 @@ def evaluate_epoch(tokenizer, model, dataloader, loss_fn, device):
     total = 0
     with torch.no_grad():
         for batch in dataloader:
-            s_pos = compute_scores(tokenizer, model, batch["question"], batch["answer"], device)
+            s_pos = compute_scores(tokenizer, model, batch["question"], batch["positive"], device)
             s_neg = compute_scores(tokenizer, model, batch["question"], batch["hard_negative"], device)
             loss = loss_fn(s_pos, s_neg)
             total_loss += loss.item()
@@ -71,9 +75,11 @@ def plot_and_save_loss(train_losses, test_losses, output_path="loss_curve.png"):
     print(f"📈 График сохранён в: {output_path}")
 
 def main():
-    CSV_PATH = "enriched_dataset.csv"
+    load_dotenv()
+    HF_TOKEN = os.getenv('HF_TOKEN')
+    CSV_PATH = "passed_oracle_method_vlidated_df.csv"
     MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L6-v2"
-    OUTPUT_DIR = "./msmarco-minilm-finetuned-ranknet"
+    OUTPUT_DIR = f"./msmarco-minilm-finetuned-ranknet-{os.path.splitext(CSV_PATH)[0]}"
     PLOT_PATH = os.path.join(OUTPUT_DIR, "loss_curve.png")
     BATCH_SIZE = 8
     EPOCHS = 3
@@ -82,7 +88,7 @@ def main():
     TEST_SIZE = 0.2
     RANDOM_STATE = 42
     
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"🚀 Device: {device}")
     
     df = pd.read_csv(CSV_PATH)
@@ -91,8 +97,8 @@ def main():
     train_df, test_df = train_test_split(df, test_size=TEST_SIZE, random_state=RANDOM_STATE, shuffle=True)
     print(f"✅ Train: {len(train_df)} | Test: {len(test_df)}")
     
-    test_df.to_csv("test_dataset.csv", index=False)
-    train_df.to_csv("train_dataset.csv", index=False)
+    test_df.to_csv(f"test_dataset_{os.path.splitext(CSV_PATH)[0]}.csv", index=False)
+    train_df.to_csv(f"train_dataset_{os.path.splitext(CSV_PATH)[0]}.csv", index=False)
     print(f"✅ Тестовый и тренировочный датасеты сохранены")
     
     train_dataset = PairDataset(train_df)
@@ -125,7 +131,7 @@ def main():
         
         for batch in pbar:
             optimizer.zero_grad()
-            s_pos = compute_scores(tokenizer, model, batch["question"], batch["answer"], device)
+            s_pos = compute_scores(tokenizer, model, batch["question"], batch["positive"], device)
             s_neg = compute_scores(tokenizer, model, batch["question"], batch["hard_negative"], device)
             loss = loss_fn(s_pos, s_neg)
             loss.backward()
