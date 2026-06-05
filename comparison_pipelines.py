@@ -1,269 +1,498 @@
 import os
-os.environ['HF_HUB_ENABLE_XET'] = '0'
-os.environ['HF_HOME'] = '/raid/iastafyev/hf_cache'
+os.environ["HF_HUB_ENABLE_XET"] = "0"
+os.environ["HF_HOME"] = "/raid/iastafyev/hf_cache"
 
-import pandas as pd
+import argparse
+import json
+import time
+import gc
+import random
 import numpy as np
+import pandas as pd
 import torch
 import faiss
-from sentence_transformers import SentenceTransformer
+
 from tqdm import tqdm
-import time
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
-# --- КОНФИГУРАЦИЯ ---
 
-# Путь к датасету (CSV с колонками 'question' и 'positive')
-DATASET_PATH = "final_full_test_df.csv"
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
-# Список bi-encoder моделей
-BI_ENCODER_MODELS = [
-    "sentence-transformers/all-MiniLM-L6-v2",
-    "sentence-transformers/all-mpnet-base-v2",
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    "intfloat/e5-base-v2",
-    "intfloat/e5-large-v2",
-    "BAAI/bge-base-en-v1.5"
-]
-
-# Список reranker моделей (пути к локальным или название из HF)
-RERANKER_MODELS = [
-    "./msmarco-minilm-finetuned-ranknet-passed_cross_mining_method_validated_df",
-    "./msmarco-minilm-finetuned-ranknet-passed_oracle_method_vlidated_df",
-    "./msmarco-minilm-finetuned-triplet-passed_cross_mining_method_validated_df",
-    "./msmarco-minilm-finetuned-triplet-passed_oracle_method_vlidated_df",
-    "cross-encoder/ms-marco-MiniLM-L6-v2"
-]
-
-# Параметры поиска
-TOP_K_RETRIEVAL = 15
-HIT_RATE_KS = [3, 5, 10]
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
 def get_prefixes(model_name):
-    """
-    Возвращает префиксы для query и passage в зависимости от модели.
-    """
-    if "e5" in model_name.lower():
+    name = model_name.lower()
+
+    if "e5" in name:
         return "query: ", "passage: "
-    elif "bge" in model_name.lower():
-        # Для BGE часто рекомендуется префикс только для query.
+
+    if "bge" in name:
         return "Represent this sentence for searching relevant passages: ", ""
-    else:
-        return "", ""
 
-def calculate_metrics_by_indices(retrieved_indices_list, ground_truth_indices_list, top_k_retrieval, hit_rate_ks):
+    return "", ""
+
+
+def get_short_name(path_or_name):
+    path_or_name = path_or_name.rstrip("/")
+
+    if os.path.isdir(path_or_name):
+        parts = path_or_name.split(os.sep)
+
+        if len(parts) >= 3 and parts[-1] == "best_model":
+            return f"{parts[-3]}__{parts[-2]}"
+
+        return os.path.basename(path_or_name)
+
+    return path_or_name
+
+
+def resolve_triplet_best_model(experiment_dir):
     """
-    retrieved_indices_list: список списков индексов документов (np.array или list)
-    ground_truth_indices_list: список индексов правильных ответов (int)
+    Возвращает путь к best_model для Triplet-эксперимента.
+    Ожидает структуру:
+    experiment_dir/
+      best_config.json
+      grid_search_results.csv
+      run_xxx/
+        best_model/
     """
+    best_config_path = os.path.join(experiment_dir, "best_config.json")
+
+    if os.path.exists(best_config_path):
+        with open(best_config_path, "r", encoding="utf-8") as f:
+            best_config = json.load(f)
+
+        if "best_model_dir" in best_config:
+            return best_config["best_model_dir"]
+
+        if "run_dir" in best_config:
+            return os.path.join(best_config["run_dir"], "best_model")
+
+    grid_path = os.path.join(experiment_dir, "grid_search_results.csv")
+
+    if os.path.exists(grid_path):
+        df = pd.read_csv(grid_path)
+        best_row = df.sort_values("best_val_loss").iloc[0]
+        return best_row["best_model_dir"]
+
+    raise FileNotFoundError(
+        f"Не удалось найти best_config.json или grid_search_results.csv в {experiment_dir}"
+    )
+
+
+def build_reranker_list(ranknet_root, triplet_root):
+    rerankers = []
+
+    # baseline reranker
+    rerankers.append({
+        "reranker_name": "cross-encoder/ms-marco-MiniLM-L6-v2",
+        "reranker_path": "cross-encoder/ms-marco-MiniLM-L6-v2",
+        "loss_type": "baseline",
+        "train_dataset": "ms-marco"
+    })
+
+    # RankNet models
+    for dataset_dir in sorted(os.listdir(ranknet_root)):
+        full_dir = os.path.join(ranknet_root, dataset_dir)
+        best_model_dir = os.path.join(full_dir, "best_model")
+
+        if os.path.isdir(best_model_dir):
+            rerankers.append({
+                "reranker_name": f"ranknet__{dataset_dir}",
+                "reranker_path": best_model_dir,
+                "loss_type": "ranknet",
+                "train_dataset": dataset_dir
+            })
+
+    # Triplet models
+    for dataset_dir in sorted(os.listdir(triplet_root)):
+        full_dir = os.path.join(triplet_root, dataset_dir)
+
+        if os.path.isdir(full_dir):
+            best_model_dir = resolve_triplet_best_model(full_dir)
+
+            rerankers.append({
+                "reranker_name": f"triplet__{dataset_dir}",
+                "reranker_path": best_model_dir,
+                "loss_type": "triplet",
+                "train_dataset": dataset_dir
+            })
+
+    return rerankers
+
+
+def calculate_metrics_by_indices(retrieved_indices_list, ground_truth_indices, hit_rate_ks):
     mrr_sum = 0.0
-    hit_rates = {k: 0 for k in hit_rate_ks}
-    n_questions = len(ground_truth_indices_list)
+    hit_counts = {k: 0 for k in hit_rate_ks}
 
-    for i, gt_idx in enumerate(ground_truth_indices_list):
-        docs_indices = retrieved_indices_list[i]
+    n = len(ground_truth_indices)
 
-        # Ищем позицию правильного индекса в списке возвращенных
-        try:
-            if isinstance(docs_indices, np.ndarray):
-                rank_arr = np.where(docs_indices == gt_idx)[0]
-                if len(rank_arr) > 0:
-                    rank = rank_arr[0] + 1 # Rank начинается с 1
-                else:
-                    rank = None
-            else:
-                rank = docs_indices.index(gt_idx) + 1
-        except ValueError:
-            rank = None
+    for retrieved_indices, gt_idx in zip(retrieved_indices_list, ground_truth_indices):
+        retrieved_indices = list(retrieved_indices)
 
-        # MRR calculation
-        if rank is not None and rank <= top_k_retrieval:
+        if gt_idx in retrieved_indices:
+            rank = retrieved_indices.index(gt_idx) + 1
             mrr_sum += 1.0 / rank
 
-        # HitRate calculation
-        for k in hit_rate_ks:
-            if rank is not None and rank <= k:
-                hit_rates[k] += 1
+            for k in hit_rate_ks:
+                if rank <= k:
+                    hit_counts[k] += 1
 
-    mrr = mrr_sum / n_questions if n_questions > 0 else 0.0
-    hit_rates_normalized = {k: v / n_questions if n_questions > 0 else 0.0 for k, v in hit_rates.items()}
+    mrr = mrr_sum / n if n > 0 else 0.0
+    hit_rates = {k: hit_counts[k] / n if n > 0 else 0.0 for k in hit_rate_ks}
 
-    return mrr, hit_rates_normalized
+    return mrr, hit_rates
 
-# --- ЗАГРУЗКА МОДЕЛЕЙ ---
 
-def load_bi_encoder(model_name):
-    print(f"Loading bi-encoder: {model_name}")
-    model = SentenceTransformer(model_name, device=DEVICE)
-    return model
+def load_dataset(path):
+    df = pd.read_csv(path)
+    df = df.dropna(subset=["question", "positive"]).reset_index(drop=True)
 
-def load_reranker(model_path):
-    print(f"Loading reranker: {model_path}")
-    from sentence_transformers import CrossEncoder
-    model = CrossEncoder(model_path, device=DEVICE)
-    return model
+    duplicated_positive_count = df["positive"].duplicated().sum()
 
-# --- ОСНОВНОЙ ЦИКЛ ---
+    if duplicated_positive_count > 0:
+        print(
+            f"⚠️ Найдено duplicate positive: {duplicated_positive_count}. "
+            f"При single-ground-truth оценке это может занижать MRR/HitRate."
+        )
 
-def run_experiment():
-    # Загрузка датасета
-    print(f"Loading dataset from {DATASET_PATH}")
-    df = pd.read_csv(DATASET_PATH)
+    return df
 
-    # Проверка на дубликаты или пустые значения
-    df.dropna(subset=['question', 'positive'], inplace=True)
-    df.reset_index(drop=True, inplace=True)
 
-    questions = df['question'].tolist()
-    positives = df['positive'].tolist()
-    
+def encode_corpus(be_model, positives, passage_prefix, batch_size):
+    docs_to_encode = [f"{passage_prefix}{doc}" for doc in positives]
+
+    embeddings = be_model.encode(
+        docs_to_encode,
+        batch_size=batch_size,
+        convert_to_numpy=True,
+        show_progress_bar=True,
+        normalize_embeddings=False
+    )
+
+    embeddings = embeddings.astype("float32")
+    faiss.normalize_L2(embeddings)
+
+    return embeddings
+
+
+def encode_queries(be_model, questions, query_prefix, batch_size):
+    queries_to_encode = [f"{query_prefix}{q}" for q in questions]
+
+    embeddings = be_model.encode(
+        queries_to_encode,
+        batch_size=batch_size,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+        normalize_embeddings=False
+    )
+
+    embeddings = embeddings.astype("float32")
+    faiss.normalize_L2(embeddings)
+
+    return embeddings
+
+
+def rerank_batched(
+    reranker_model,
+    questions,
+    positives,
+    retrieved_indices_matrix,
+    rerank_batch_size
+):
     num_questions = len(questions)
-    if num_questions == 0:
-        print("Dataset is empty after cleaning.")
-        return
+    top_k = retrieved_indices_matrix.shape[1]
 
-    # Ground truth indices: индекс строки в df совпадает с индексом в FAISS, 
-    # так как мы добавляем документы в том же порядке, в котором они в df.
-    ground_truth_indices = list(range(num_questions))
+    all_pairs = []
+
+    for i in range(num_questions):
+        for doc_idx in retrieved_indices_matrix[i]:
+            all_pairs.append([questions[i], positives[int(doc_idx)]])
+
+    scores = reranker_model.predict(
+        all_pairs,
+        batch_size=rerank_batch_size,
+        show_progress_bar=True
+    )
+
+    scores = np.asarray(scores).reshape(num_questions, top_k)
+
+    final_indices = []
+
+    for i in range(num_questions):
+        order = np.argsort(-scores[i])
+        sorted_indices = retrieved_indices_matrix[i][order]
+        final_indices.append(sorted_indices)
+
+    return final_indices
+
+
+def run_experiment(args):
+    set_seed(args.seed)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🚀 Device: {device}")
+    print(f"📌 Seed: {args.seed}")
+
+    df = load_dataset(args.dataset_path)
+
+    questions = df["question"].astype(str).tolist()
+    positives = df["positive"].astype(str).tolist()
+    ground_truth_indices = list(range(len(df)))
+
+    print(f"📊 Test examples: {len(df)}")
+
+    bi_encoder_models = [
+        "sentence-transformers/all-MiniLM-L6-v2",
+        "sentence-transformers/all-mpnet-base-v2",
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "intfloat/e5-base-v2",
+        "intfloat/e5-large-v2",
+        "BAAI/bge-base-en-v1.5"
+    ]
+
+    reranker_configs = build_reranker_list(
+        ranknet_root=args.ranknet_root,
+        triplet_root=args.triplet_root
+    )
+
+    print("\n📌 Rerankers:")
+    print("   No_Reranker")
+    for r in reranker_configs:
+        print(f"   {r['reranker_name']} -> {r['reranker_path']}")
 
     results = []
 
-    # Перебор bi-encoder моделей
-    for be_model_name in BI_ENCODER_MODELS:
-        be_model = load_bi_encoder(be_model_name)
-        query_prefix, passage_prefix = get_prefixes(be_model_name)
+    for be_name in bi_encoder_models:
+        print("\n" + "=" * 100)
+        print(f"🔎 Bi-encoder: {be_name}")
+        print("=" * 100)
 
-        # 1. Построение индекса FAISS для текущей bi-encoder модели
-        print(f"Encoding documents for {be_model_name}...")
+        query_prefix, passage_prefix = get_prefixes(be_name)
 
-        docs_to_encode = [f"{passage_prefix}{doc}" for doc in positives]
+        be_model = SentenceTransformer(be_name, device=device)
 
-        doc_embeddings = be_model.encode(docs_to_encode, convert_to_numpy=True, show_progress_bar=True)
+        print("Encoding corpus...")
+        corpus_embeddings = encode_corpus(
+            be_model,
+            positives,
+            passage_prefix,
+            args.bi_encoder_batch_size
+        )
 
-        # Нормализация эмбеддингов для использования косинусного сходства через IP (Inner Product)
-        faiss.normalize_L2(doc_embeddings)
+        dim = corpus_embeddings.shape[1]
+        index = faiss.IndexFlatIP(dim)
+        index.add(corpus_embeddings)
 
-        dimension = doc_embeddings.shape[1]
-        index = faiss.IndexFlatIP(dimension)
-        index.add(doc_embeddings)
+        print(f"FAISS index size: {index.ntotal}")
 
-        print(f"Index built for {be_model_name}. Size: {index.ntotal}")
+        print("Encoding queries and searching...")
+        start_retrieval = time.perf_counter()
 
-        # Перебор reranker моделей (включая вариант "None" для чистого bi-encoder)
-        reranker_list = [None] + RERANKER_MODELS
+        query_embeddings = encode_queries(
+            be_model,
+            questions,
+            query_prefix,
+            args.bi_encoder_batch_size
+        )
 
-        for reranker_path in reranker_list:
-            reranker_model = None
-            if reranker_path is not None:
-                reranker_model = load_reranker(reranker_path)
+        _, retrieved_indices = index.search(
+            query_embeddings,
+            args.top_k_retrieval
+        )
 
-            reranker_name = "No_Reranker" if reranker_path is None else os.path.basename(reranker_path)
-            print(f"\nTesting combination: BE={be_model_name} | RR={reranker_name}")
+        end_retrieval = time.perf_counter()
 
-            # 2. Поиск и Реранкинг с замером времени
+        total_time_retrieval = end_retrieval - start_retrieval
+        avg_time_retrieval = total_time_retrieval / len(questions)
 
-            # --- Замер времени Retrieval (Encode Query + FAISS Search) ---
-            start_time_retrieval = time.time()
+        # ---------- No reranker ----------
+        mrr, hit_rates = calculate_metrics_by_indices(
+            retrieved_indices_list=[retrieved_indices[i] for i in range(len(questions))],
+            ground_truth_indices=ground_truth_indices,
+            hit_rate_ks=args.hit_rate_ks
+        )
 
-            queries_to_encode = [f"{query_prefix}{q}" for q in questions]
-            # Отключаем прогресс-бар внутри замера времени, чтобы не замедлять и не засорять вывод
-            query_embeddings = be_model.encode(queries_to_encode, convert_to_numpy=True, show_progress_bar=False)
-            faiss.normalize_L2(query_embeddings)
+        results.append({
+            "bi_encoder": be_name,
+            "reranker": "No_Reranker",
+            "reranker_path": None,
+            "loss_type": "none",
+            "train_dataset": "none",
+            f"MRR@{args.top_k_retrieval}": mrr,
+            **{f"HitRate@{k}": v for k, v in hit_rates.items()},
+            "avg_time_retrieval_sec": avg_time_retrieval,
+            "avg_time_rerank_sec": 0.0,
+            "total_time_retrieval_sec": total_time_retrieval,
+            "total_time_rerank_sec": 0.0,
+            "top_k_retrieval": args.top_k_retrieval
+        })
 
-            # Поиск топ-15 в FAISS
-            D, I = index.search(query_embeddings, TOP_K_RETRIEVAL)
+        print(f"\nBE only | MRR@{args.top_k_retrieval}: {mrr:.4f}")
 
-            end_time_retrieval = time.time()
-            total_time_retrieval_sec = end_time_retrieval - start_time_retrieval
-            
-            # Расчет среднего времени на один запрос
-            avg_time_retrieval_per_query = total_time_retrieval_sec / num_questions
+        for k, v in hit_rates.items():
+            print(f"BE only | HitRate@{k}: {v:.4f}")
 
-            # I имеет размерность (num_questions, 15). Содержит индексы документов.
-            retrieved_indices_list = [I[i] for i in range(num_questions)]
+        # ---------- Rerankers ----------
+        for reranker_cfg in reranker_configs:
+            reranker_path = reranker_cfg["reranker_path"]
+            reranker_name = reranker_cfg["reranker_name"]
 
-            # --- Замер времени Reranking ---
-            total_time_rerank_sec = 0.0
-            avg_time_rerank_per_query = 0.0
-            final_retrieved_indices_list = retrieved_indices_list # По умолчанию без реранка
+            print("\n" + "-" * 100)
+            print(f"Testing reranker: {reranker_name}")
+            print(f"Path: {reranker_path}")
+            print("-" * 100)
 
-            if reranker_model is not None:
-                start_time_rerank = time.time()
-
-                final_retrieved_indices_list = []
-
-                # Для реранкинга оставляем tqdm, чтобы видеть прогресс, так как это долго
-                print("Processing results and reranking...")
-                for i in tqdm(range(num_questions), desc="Reranking"):
-                    doc_indices = I[i]
-                    candidate_docs = [positives[idx] for idx in doc_indices]
-
-                    # Подготовка пар для cross-encoder
-                    pairs = [[questions[i], doc] for doc in candidate_docs]
-
-                    # Получение скоров
-                    scores = reranker_model.predict(pairs, show_progress_bar=False)
-
-                    # Сортировка по убыванию скора
-                    scored_indices = list(zip(scores, doc_indices))
-                    scored_indices.sort(key=lambda x: x[0], reverse=True)
-
-                    # Извлекаем индексы в новом порядке
-                    sorted_indices = np.array([idx for _, idx in scored_indices])
-                    final_retrieved_indices_list.append(sorted_indices)
-
-                end_time_rerank = time.time()
-                total_time_rerank_sec = end_time_rerank - start_time_rerank
-                
-                # Расчет среднего времени на один запрос
-                avg_time_rerank_per_query = total_time_rerank_sec / num_questions
-
-            # 3. Расчет метрик по индексам
-            mrr, hit_rates = calculate_metrics_by_indices(
-                final_retrieved_indices_list,
-                ground_truth_indices,
-                TOP_K_RETRIEVAL,
-                HIT_RATE_KS
+            reranker_model = CrossEncoder(
+                reranker_path,
+                device=device,
+                max_length=args.cross_encoder_max_length
             )
 
-            print(f"MRR@{TOP_K_RETRIEVAL}: {mrr:.4f}")
-            for k, hr in hit_rates.items():
-                print(f"HitRate@{k}: {hr:.4f}")
-            
-            print(f"Avg Time Retrieval per query: {avg_time_retrieval_per_query:.4f}s (Total: {total_time_retrieval_sec:.2f}s)")
-            print(f"Avg Time Rerank per query:    {avg_time_rerank_per_query:.4f}s (Total: {total_time_rerank_sec:.2f}s)")
+            start_rerank = time.perf_counter()
 
-            # Сохранение результата
+            final_indices = rerank_batched(
+                reranker_model=reranker_model,
+                questions=questions,
+                positives=positives,
+                retrieved_indices_matrix=retrieved_indices,
+                rerank_batch_size=args.rerank_batch_size
+            )
+
+            end_rerank = time.perf_counter()
+
+            total_time_rerank = end_rerank - start_rerank
+            avg_time_rerank = total_time_rerank / len(questions)
+
+            mrr, hit_rates = calculate_metrics_by_indices(
+                retrieved_indices_list=final_indices,
+                ground_truth_indices=ground_truth_indices,
+                hit_rate_ks=args.hit_rate_ks
+            )
+
+            print(f"MRR@{args.top_k_retrieval}: {mrr:.4f}")
+
+            for k, v in hit_rates.items():
+                print(f"HitRate@{k}: {v:.4f}")
+
+            print(f"Avg retrieval time/query: {avg_time_retrieval:.6f}s")
+            print(f"Avg rerank time/query:    {avg_time_rerank:.6f}s")
+
             results.append({
-                "bi_encoder": be_model_name,
+                "bi_encoder": be_name,
                 "reranker": reranker_name,
-                "MRR@15": mrr,
+                "reranker_path": reranker_path,
+                "loss_type": reranker_cfg["loss_type"],
+                "train_dataset": reranker_cfg["train_dataset"],
+                f"MRR@{args.top_k_retrieval}": mrr,
                 **{f"HitRate@{k}": v for k, v in hit_rates.items()},
-                "avg_time_retrieval_sec": avg_time_retrieval_per_query,
-                "avg_time_rerank_sec": avg_time_rerank_per_query,
-                "total_time_retrieval_sec": total_time_retrieval_sec,
-                "total_time_rerank_sec": total_time_rerank_sec
+                "avg_time_retrieval_sec": avg_time_retrieval,
+                "avg_time_rerank_sec": avg_time_rerank,
+                "total_time_retrieval_sec": total_time_retrieval,
+                "total_time_rerank_sec": total_time_rerank,
+                "top_k_retrieval": args.top_k_retrieval
             })
 
-            # Освобождение памяти от reranker если он был загружен
-            if reranker_model is not None:
-                del reranker_model
-                if DEVICE == "cuda":
-                    torch.cuda.empty_cache()
+            del reranker_model
+            gc.collect()
 
-        # Освобождение памяти от bi-encoder перед следующей моделью
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         del be_model
         del index
-        if DEVICE == "cuda":
+        del corpus_embeddings
+        del query_embeddings
+        gc.collect()
+
+        if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # Сохранение итоговой таблицы результатов
     results_df = pd.DataFrame(results)
-    results_df.to_csv("retrieval_experiment_results.csv", index=False)
-    print("\nExperiment finished. Results saved to retrieval_experiment_results.csv")
-    print(results_df)
+    results_df = results_df.sort_values(
+        by=[f"MRR@{args.top_k_retrieval}", "HitRate@10"],
+        ascending=False
+    )
+
+    results_df.to_csv(args.output_csv, index=False)
+
+    print("\n" + "=" * 100)
+    print("✅ EXPERIMENT FINISHED")
+    print(f"📄 Results saved to: {args.output_csv}")
+    print("=" * 100)
+    print(results_df.head(20))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--dataset_path",
+        type=str,
+        default="final_full_test_df.csv"
+    )
+
+    parser.add_argument(
+        "--ranknet_root",
+        type=str,
+        default="minilm_rerank_ranknet"
+    )
+
+    parser.add_argument(
+        "--triplet_root",
+        type=str,
+        default="minilm_rerank_triplet"
+    )
+
+    parser.add_argument(
+        "--output_csv",
+        type=str,
+        default="retrieval_experiment_results.csv"
+    )
+
+    parser.add_argument(
+        "--top_k_retrieval",
+        type=int,
+        default=15
+    )
+
+    parser.add_argument(
+        "--hit_rate_ks",
+        type=int,
+        nargs="+",
+        default=[3, 5, 10]
+    )
+
+    parser.add_argument(
+        "--bi_encoder_batch_size",
+        type=int,
+        default=64
+    )
+
+    parser.add_argument(
+        "--rerank_batch_size",
+        type=int,
+        default=64
+    )
+
+    parser.add_argument(
+        "--cross_encoder_max_length",
+        type=int,
+        default=256
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42
+    )
+
+    args = parser.parse_args()
+    run_experiment(args)
+
 
 if __name__ == "__main__":
-    run_experiment()
+    main()
