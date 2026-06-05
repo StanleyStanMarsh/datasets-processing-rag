@@ -1,4 +1,4 @@
-question,answer
+question,positive
 How does attack software 'S0586: TAINTEDSCRIBE' use attack technique 'T1057: Process Discovery'?,TAINTEDSCRIBE can execute the ProcessList command for process discovery.
 How does attack software 'S0594: Out1' use attack technique 'T1059.003: Windows Command Shell'?,Out1 can use the native command line for execution.
 How can mitigation strategy 'M1056: Pre-compromise' be used to mitigate attack technique 'T1595.003: Wordlist Scanning'?,Efforts should focus on minimizing the amount and sensitivity of data available to external parties.
